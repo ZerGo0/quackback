@@ -26,38 +26,19 @@ vi.mock('@/lib/server/domains/activity/activity.service', () => ({
   createActivity: (...args: unknown[]) => mockCreateActivity(...args),
 }))
 
-import { Route as VotersRoute } from '../$postId.voters'
 import { Route as ProxyVoteRoute } from '../$postId.vote.proxy'
-import { Route as VoterRoute } from '../$postId.voters.$principalId'
 
-type VotersRouteOpts = {
+type ProxyVoteRouteOpts = {
   server: {
     handlers: {
       GET: (...args: unknown[]) => Promise<Response>
       POST: (...args: unknown[]) => Promise<Response>
-    }
-  }
-}
-type VoterRouteOpts = {
-  server: {
-    handlers: {
       PATCH: (...args: unknown[]) => Promise<Response>
       DELETE: (...args: unknown[]) => Promise<Response>
     }
   }
 }
-type ProxyVoteRouteOpts = {
-  server: {
-    handlers: {
-      POST: (...args: unknown[]) => Promise<Response>
-      DELETE: (...args: unknown[]) => Promise<Response>
-    }
-  }
-}
 
-const votersHandlers = (VotersRoute as unknown as { options: VotersRouteOpts }).options.server
-  .handlers
-const voterHandlers = (VoterRoute as unknown as { options: VoterRouteOpts }).options.server.handlers
 const proxyVoteHandlers = (ProxyVoteRoute as unknown as { options: ProxyVoteRouteOpts }).options
   .server.handlers
 
@@ -66,14 +47,14 @@ const VOTER_PRINCIPAL_ID = 'principal_01kqhxq697fvgat0fvps13rmy2' as unknown as 
 const ACTOR_PRINCIPAL_ID = 'principal_01kqhxq697fvgat0fn8rr1r7ew' as unknown as PrincipalId
 
 function makeRequest(method: string, body?: Record<string, unknown>): Request {
-  return new Request(`http://test/api/v1/posts/${POST_ID}/voters`, {
+  return new Request(`http://test/api/v1/posts/${POST_ID}/vote/proxy`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   })
 }
 
-describe('/api/v1/posts/:postId/voters', () => {
+describe('/api/v1/posts/:postId/vote/proxy', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockWithApiKeyAuth.mockResolvedValue({
@@ -103,7 +84,7 @@ describe('/api/v1/posts/:postId/voters', () => {
       },
     ])
 
-    const res = await votersHandlers.GET({
+    const res = await proxyVoteHandlers.GET({
       request: makeRequest('GET'),
       params: { postId: POST_ID },
     })
@@ -114,8 +95,8 @@ describe('/api/v1/posts/:postId/voters', () => {
     expect(json.data[0].createdAt).toBe('2026-01-01T00:00:00.000Z')
   })
 
-  it('requires principalId when adding a voter', async () => {
-    const res = await votersHandlers.POST({
+  it('requires voterPrincipalId when adding a proxy vote', async () => {
+    const res = await proxyVoteHandlers.POST({
       request: makeRequest('POST', {}),
       params: { postId: POST_ID },
     })
@@ -127,8 +108,8 @@ describe('/api/v1/posts/:postId/voters', () => {
   it('passes createdAt through for admin API keys', async () => {
     const createdAt = '2026-02-03T04:05:06.000Z'
 
-    const res = await votersHandlers.POST({
-      request: makeRequest('POST', { principalId: VOTER_PRINCIPAL_ID, createdAt }),
+    const res = await proxyVoteHandlers.POST({
+      request: makeRequest('POST', { voterPrincipalId: VOTER_PRINCIPAL_ID, createdAt }),
       params: { postId: POST_ID },
     })
 
@@ -150,9 +131,9 @@ describe('/api/v1/posts/:postId/voters', () => {
       importMode: false,
     })
 
-    await votersHandlers.POST({
+    await proxyVoteHandlers.POST({
       request: makeRequest('POST', {
-        principalId: VOTER_PRINCIPAL_ID,
+        voterPrincipalId: VOTER_PRINCIPAL_ID,
         createdAt: '2026-02-03T04:05:06.000Z',
       }),
       params: { postId: POST_ID },
@@ -168,18 +149,32 @@ describe('/api/v1/posts/:postId/voters', () => {
       importMode: true,
     })
 
-    await votersHandlers.POST({
-      request: makeRequest('POST', { principalId: VOTER_PRINCIPAL_ID }),
+    await proxyVoteHandlers.POST({
+      request: makeRequest('POST', { voterPrincipalId: VOTER_PRINCIPAL_ID }),
       params: { postId: POST_ID },
     })
 
     expect(mockCreateActivity).not.toHaveBeenCalled()
   })
 
-  it('updates a voter subscription level by path principal ID', async () => {
-    const res = await voterHandlers.PATCH({
-      request: makeRequest('PATCH', { subscriptionLevel: 'status_only' }),
-      params: { postId: POST_ID, principalId: VOTER_PRINCIPAL_ID },
+  it('returns the legacy proxy vote response shape', async () => {
+    const res = await proxyVoteHandlers.POST({
+      request: makeRequest('POST', { voterPrincipalId: VOTER_PRINCIPAL_ID }),
+      params: { postId: POST_ID },
+    })
+
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.data).toEqual({ voted: true, voteCount: 3 })
+  })
+
+  it('updates a voter subscription level from the request body', async () => {
+    const res = await proxyVoteHandlers.PATCH({
+      request: makeRequest('PATCH', {
+        voterPrincipalId: VOTER_PRINCIPAL_ID,
+        subscriptionLevel: 'status_only',
+      }),
+      params: { postId: POST_ID },
     })
 
     expect(res.status).toBe(200)
@@ -188,43 +183,22 @@ describe('/api/v1/posts/:postId/voters', () => {
       POST_ID,
       'status_only'
     )
-  })
-
-  it('removes a voter by path principal ID', async () => {
-    const res = await voterHandlers.DELETE({
-      request: makeRequest('DELETE'),
-      params: { postId: POST_ID, principalId: VOTER_PRINCIPAL_ID },
-    })
-
-    expect(res.status).toBe(200)
-    expect(mockRemoveVote).toHaveBeenCalledWith(POST_ID, VOTER_PRINCIPAL_ID)
-    expect(mockCreateActivity).toHaveBeenCalledWith({
+    const json = await res.json()
+    expect(json.data).toEqual({
       postId: POST_ID,
-      principalId: ACTOR_PRINCIPAL_ID,
-      type: 'vote.removed',
-      metadata: { voterPrincipalId: VOTER_PRINCIPAL_ID },
+      principalId: VOTER_PRINCIPAL_ID,
+      subscriptionLevel: 'status_only',
     })
   })
 
-  it('keeps the legacy proxy vote endpoint for existing clients', async () => {
-    const createdAt = '2026-02-03T04:05:06.000Z'
-
-    const res = await proxyVoteHandlers.POST({
-      request: makeRequest('POST', { voterPrincipalId: VOTER_PRINCIPAL_ID, createdAt }),
+  it('requires subscriptionLevel when updating a voter', async () => {
+    const res = await proxyVoteHandlers.PATCH({
+      request: makeRequest('PATCH', { voterPrincipalId: VOTER_PRINCIPAL_ID }),
       params: { postId: POST_ID },
     })
 
-    expect(res.status).toBe(200)
-    expect(mockAddVoteOnBehalf).toHaveBeenCalledWith(
-      POST_ID,
-      VOTER_PRINCIPAL_ID,
-      { type: 'proxy', externalUrl: '' },
-      null,
-      ACTOR_PRINCIPAL_ID,
-      new Date(createdAt)
-    )
-    const json = await res.json()
-    expect(json.data).toEqual({ voted: true, voteCount: 3 })
+    expect(res.status).toBe(400)
+    expect(mockUpdateVoterSubscriptionLevel).not.toHaveBeenCalled()
   })
 
   it('keeps the legacy proxy vote delete response shape', async () => {
