@@ -29,10 +29,12 @@ import {
   posts,
   principal,
   user,
+  votes,
   type Transaction,
 } from '@/lib/server/db'
 import type { PrincipalId, PostId } from '@quackback/ids'
 import { randomUUID } from 'crypto'
+import { ValidationError } from '@/lib/shared/errors'
 import {
   levelFromFlags,
   type SubscriptionReason,
@@ -136,6 +138,33 @@ export async function updateSubscriptionLevel(
     .where(
       and(eq(postSubscriptions.principalId, principalId), eq(postSubscriptions.postId, postId))
     )
+}
+
+/**
+ * Update the notification level for a principal that has voted on a post.
+ */
+export async function updateVoterSubscriptionLevel(
+  principalId: PrincipalId,
+  postId: PostId,
+  level: SubscriptionLevel
+): Promise<void> {
+  const [vote] = await db
+    .select({ id: votes.id })
+    .from(votes)
+    .where(and(eq(votes.postId, postId), eq(votes.principalId, principalId)))
+    .limit(1)
+
+  if (!vote) {
+    throw new ValidationError('VALIDATION_ERROR', 'Principal does not have a vote on this post')
+  }
+
+  if (level === 'none') {
+    await unsubscribeFromPost(principalId, postId)
+    return
+  }
+
+  await subscribeToPost(principalId, postId, 'manual', { level })
+  await updateSubscriptionLevel(principalId, postId, level)
 }
 
 /**

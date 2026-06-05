@@ -30,6 +30,7 @@ import {
 } from '@/lib/server/domains/principals/principal.service'
 import { listPortalUsers, removePortalUser } from '@/lib/server/domains/users/user.service'
 import { getPortalUserDetail } from '@/lib/server/domains/users/user.detail'
+import { createPortalUser } from '@/lib/server/domains/users/user.identify'
 import {
   listSegments,
   createSegment,
@@ -818,45 +819,13 @@ export const createPortalUserFn = createServerFn({ method: 'POST' })
     try {
       await requireAuth({ roles: ['admin'] })
 
-      // Check email uniqueness if provided
-      if (data.email) {
-        const normalized = data.email.toLowerCase().trim()
-        const existing = await db
-          .select({ id: user.id })
-          .from(user)
-          .where(eq(user.email, normalized))
-          .limit(1)
-        if (existing.length > 0) {
-          throw new Error('A user with this email already exists')
-        }
-      }
+      const result = await createPortalUser(data)
 
-      const userId = generateId('user')
-      const principalId = generateId('principal')
-      const trimmedName = data.name.trim()
-
-      await db.insert(user).values({
-        id: userId,
-        name: trimmedName,
-        email: data.email ? data.email.toLowerCase().trim() : null,
-        emailVerified: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-
-      await db.insert(principal).values({
-        id: principalId,
-        userId,
-        role: 'user' as const,
-        displayName: trimmedName,
-        createdAt: new Date(),
-      })
-
-      console.log(`[fn:admin] createPortalUserFn: created principalId=${principalId}`)
+      console.log(`[fn:admin] createPortalUserFn: created principalId=${result.principalId}`)
       return {
-        principalId: principalId as string,
-        name: trimmedName,
-        email: data.email?.toLowerCase().trim() ?? null,
+        principalId: result.principalId as string,
+        name: result.name,
+        email: result.email,
       }
     } catch (error) {
       console.error(`[fn:admin] ❌ createPortalUserFn failed:`, error)

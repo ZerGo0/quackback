@@ -6,8 +6,10 @@ import { z } from 'zod'
 import { createServerFn } from '@tanstack/react-start'
 import { type PostId, type PrincipalId } from '@quackback/ids'
 import { requireAuth } from './auth-helpers'
-import type { SubscriptionLevel } from '@/lib/server/domains/subscriptions/subscription.service'
-import { db, votes, eq, and } from '@/lib/server/db'
+import {
+  updateVoterSubscriptionLevel,
+  type SubscriptionLevel,
+} from '@/lib/server/domains/subscriptions/subscription.service'
 
 const getSubscriptionStatusSchema = z.object({
   postId: z.string(),
@@ -166,31 +168,11 @@ export const adminUpdateVoterSubscriptionFn = createServerFn({ method: 'POST' })
       const targetPrincipalId = data.principalId as PrincipalId
       const targetPostId = data.postId as PostId
 
-      const { unsubscribeFromPost, subscribeToPost, updateSubscriptionLevel } =
-        await import('@/lib/server/domains/subscriptions/subscription.service')
-
-      // Verify the principal actually has a vote on this post
-      const [vote] = await db
-        .select({ id: votes.id })
-        .from(votes)
-        .where(and(eq(votes.postId, targetPostId), eq(votes.principalId, targetPrincipalId)))
-        .limit(1)
-      if (!vote) {
-        throw new Error('Principal does not have a vote on this post')
-      }
-      if (data.level === 'none') {
-        await unsubscribeFromPost(targetPrincipalId, targetPostId)
-      } else {
-        // Pass level directly to avoid intermediate over-subscribed state
-        await subscribeToPost(targetPrincipalId, targetPostId, 'manual', {
-          level: data.level as SubscriptionLevel,
-        })
-        await updateSubscriptionLevel(
-          targetPrincipalId,
-          targetPostId,
-          data.level as SubscriptionLevel
-        )
-      }
+      await updateVoterSubscriptionLevel(
+        targetPrincipalId,
+        targetPostId,
+        data.level as SubscriptionLevel
+      )
 
       console.log(`[fn:subscriptions] adminUpdateVoterSubscriptionFn: updated`)
       return { postId: data.postId, principalId: data.principalId, level: data.level }

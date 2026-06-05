@@ -71,6 +71,14 @@ const IdentifyUserResponseSchema = z.object({
     .meta({ description: 'true if new user was created, false if existing was updated' }),
 })
 
+const CreatePortalUserResponseSchema = z.object({
+  principalId: TypeIdSchema.meta({ description: 'Principal ID' }),
+  userId: z.string().meta({ description: 'User ID' }),
+  name: z.string().meta({ example: 'Jane Doe' }),
+  email: z.string().email().nullable().meta({ example: 'jane@example.com' }),
+  createdAt: TimestampSchema.meta({ description: 'Account creation date' }),
+})
+
 const UpdateUserResponseSchema = IdentifyUserResponseSchema.omit({ created: true })
 
 // Response schemas
@@ -161,6 +169,47 @@ registerPath('/users', {
             schema: asSchema(PortalUsersListResponseSchema),
           },
         },
+      },
+      401: {
+        description: 'Unauthorized',
+        content: { 'application/json': { schema: UnauthorizedErrorSchema } },
+      },
+    },
+  },
+})
+
+// Register POST /users
+registerPath('/users', {
+  post: {
+    tags: ['Users'],
+    summary: 'Create a portal user',
+    description:
+      'Create a portal user with a display name and optional email. Requires an admin API key.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: asSchema(
+            z.object({
+              name: z.string().min(1).max(200).meta({ description: 'Display name' }),
+              email: z.string().email().optional().meta({ description: 'Email address' }),
+            })
+          ),
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Portal user created',
+        content: {
+          'application/json': {
+            schema: createItemResponseSchema(CreatePortalUserResponseSchema, 'Created user'),
+          },
+        },
+      },
+      400: {
+        description: 'Validation error',
+        content: { 'application/json': { schema: asSchema(ValidationErrorSchema) } },
       },
       401: {
         description: 'Unauthorized',

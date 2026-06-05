@@ -8,8 +8,10 @@
 import { db, eq, and, principal, user } from '@/lib/server/db'
 import type { PrincipalId, UserId } from '@quackback/ids'
 import { generateId } from '@quackback/ids'
-import { NotFoundError } from '@/lib/shared/errors'
+import { ConflictError, NotFoundError } from '@/lib/shared/errors'
 import type {
+  CreatePortalUserInput,
+  CreatePortalUserResult,
   IdentifyPortalUserInput,
   IdentifyPortalUserResult,
   UpdatePortalUserInput,
@@ -168,6 +170,59 @@ export async function identifyPortalUser(
     attributes: parseUserAttributes(userRecord.metadata ?? null),
     createdAt: userRecord.createdAt,
     created,
+  }
+}
+
+/**
+ * Create a portal user without requiring an email address.
+ *
+ * Used by the admin "Add voter" flow when the person does not exist yet.
+ */
+export async function createPortalUser(
+  input: CreatePortalUserInput
+): Promise<CreatePortalUserResult> {
+  const trimmedName = input.name.trim()
+  const normalizedEmail = input.email?.toLowerCase().trim()
+
+  if (normalizedEmail) {
+    const existing = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, normalizedEmail))
+      .limit(1)
+
+    if (existing.length > 0) {
+      throw new ConflictError('CONFLICT', 'A user with this email already exists')
+    }
+  }
+
+  const userId = generateId('user')
+  const principalId = generateId('principal') as PrincipalId
+  const createdAt = new Date()
+
+  await db.insert(user).values({
+    id: userId,
+    name: trimmedName,
+    email: normalizedEmail ?? null,
+    emailVerified: false,
+    createdAt,
+    updatedAt: createdAt,
+  })
+
+  await db.insert(principal).values({
+    id: principalId,
+    userId,
+    role: 'user' as const,
+    displayName: trimmedName,
+    createdAt,
+  })
+
+  return {
+    principalId,
+    userId,
+    name: trimmedName,
+    email: normalizedEmail ?? null,
+    createdAt,
   }
 }
 

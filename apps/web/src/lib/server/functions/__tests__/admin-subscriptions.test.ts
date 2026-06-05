@@ -31,32 +31,12 @@ vi.mock('@/lib/server/functions/auth-helpers', () => ({
 
 // --- Mock: subscription service ---
 
-const mockSubscribeToPost = vi.fn()
-const mockUnsubscribeFromPost = vi.fn()
-const mockUpdateSubscriptionLevel = vi.fn()
+const mockUpdateVoterSubscriptionLevel = vi.fn()
 
 vi.mock('@/lib/server/domains/subscriptions/subscription.service', () => ({
   getSubscriptionStatus: vi.fn(),
-  subscribeToPost: (...args: unknown[]) => mockSubscribeToPost(...args),
-  unsubscribeFromPost: (...args: unknown[]) => mockUnsubscribeFromPost(...args),
-  updateSubscriptionLevel: (...args: unknown[]) => mockUpdateSubscriptionLevel(...args),
+  updateVoterSubscriptionLevel: (...args: unknown[]) => mockUpdateVoterSubscriptionLevel(...args),
   processUnsubscribeToken: vi.fn(),
-}))
-
-// --- Mock: db (for vote existence check) ---
-
-const mockLimit = vi.fn()
-const mockWhere = vi.fn(() => ({ limit: mockLimit }))
-const mockFrom = vi.fn(() => ({ where: mockWhere }))
-const mockSelect = vi.fn(() => ({ from: mockFrom }))
-
-vi.mock('@/lib/server/db', () => ({
-  db: {
-    select: () => mockSelect(),
-  },
-  votes: { id: 'id', postId: 'postId', principalId: 'principalId' },
-  eq: vi.fn(),
-  and: vi.fn(),
 }))
 
 // --- Handler setup ---
@@ -71,6 +51,8 @@ let handler: AnyHandler
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  mockUpdateVoterSubscriptionLevel.mockReset()
+  mockUpdateVoterSubscriptionLevel.mockResolvedValue(undefined)
   if (handlersByIndex.length === 0) {
     await import('../subscriptions')
   }
@@ -84,54 +66,47 @@ describe('adminUpdateVoterSubscriptionFn', () => {
     level: 'status_only',
   }
 
-  it('rejects requests for non-voters', async () => {
+  it('rejects requests rejected by the voter subscription helper', async () => {
     mockRequireAuth.mockResolvedValue({ principalId: 'admin_principal' })
-    // Vote query returns empty array (no vote found)
-    mockLimit.mockResolvedValue([])
+    mockUpdateVoterSubscriptionLevel.mockRejectedValue(
+      new Error('Principal does not have a vote on this post')
+    )
 
     await expect(handler({ data: validData })).rejects.toThrow(
       'Principal does not have a vote on this post'
     )
-
-    // Should NOT have called any subscription functions
-    expect(mockSubscribeToPost).not.toHaveBeenCalled()
-    expect(mockUnsubscribeFromPost).not.toHaveBeenCalled()
-    expect(mockUpdateSubscriptionLevel).not.toHaveBeenCalled()
   })
 
-  it('passes the requested level to subscribeToPost to avoid intermediate state', async () => {
+  it('delegates status_only updates to the shared voter subscription helper', async () => {
     mockRequireAuth.mockResolvedValue({ principalId: 'admin_principal' })
-    // Vote exists
-    mockLimit.mockResolvedValue([{ id: 'vote_1' }])
 
     await handler({ data: validData })
 
-    // subscribeToPost should receive level in options (4th arg)
-    expect(mockSubscribeToPost).toHaveBeenCalledWith('principal_xyz456', 'post_abc123', 'manual', {
-      level: 'status_only',
-    })
+    expect(mockUpdateVoterSubscriptionLevel).toHaveBeenCalledWith(
+      'principal_xyz456',
+      'post_abc123',
+      'status_only'
+    )
   })
 
-  it('calls unsubscribeFromPost for level "none" when voter exists', async () => {
+  it('delegates none updates to the shared voter subscription helper', async () => {
     mockRequireAuth.mockResolvedValue({ principalId: 'admin_principal' })
-    mockLimit.mockResolvedValue([{ id: 'vote_1' }])
 
     await handler({ data: { ...validData, level: 'none' } })
 
-    expect(mockUnsubscribeFromPost).toHaveBeenCalledWith('principal_xyz456', 'post_abc123')
-    expect(mockSubscribeToPost).not.toHaveBeenCalled()
+    expect(mockUpdateVoterSubscriptionLevel).toHaveBeenCalledWith(
+      'principal_xyz456',
+      'post_abc123',
+      'none'
+    )
   })
 
-  it('calls both subscribeToPost and updateSubscriptionLevel for non-none levels', async () => {
+  it('delegates all updates to the shared voter subscription helper', async () => {
     mockRequireAuth.mockResolvedValue({ principalId: 'admin_principal' })
-    mockLimit.mockResolvedValue([{ id: 'vote_1' }])
 
     await handler({ data: { ...validData, level: 'all' } })
 
-    expect(mockSubscribeToPost).toHaveBeenCalledWith('principal_xyz456', 'post_abc123', 'manual', {
-      level: 'all',
-    })
-    expect(mockUpdateSubscriptionLevel).toHaveBeenCalledWith(
+    expect(mockUpdateVoterSubscriptionLevel).toHaveBeenCalledWith(
       'principal_xyz456',
       'post_abc123',
       'all'
@@ -140,7 +115,6 @@ describe('adminUpdateVoterSubscriptionFn', () => {
 
   it('returns the updated subscription data on success', async () => {
     mockRequireAuth.mockResolvedValue({ principalId: 'admin_principal' })
-    mockLimit.mockResolvedValue([{ id: 'vote_1' }])
 
     const result = await handler({ data: validData })
 

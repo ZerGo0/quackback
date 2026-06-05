@@ -1,11 +1,22 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
+import { createPortalUser } from '@/lib/server/domains/users/user.identify'
+import { parseUserAttributes } from '@/lib/server/domains/users/user.attributes'
+import { listPortalUsers } from '@/lib/server/domains/users/user.service'
 import { withApiKeyAuth } from '@/lib/server/domains/api/auth'
 import {
   successResponse,
+  createdResponse,
+  badRequestResponse,
   handleDomainError,
   decodeCursor,
   encodeCursor,
 } from '@/lib/server/domains/api/responses'
+
+const createUserSchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.string().email().optional(),
+})
 
 export const Route = createFileRoute('/api/v1/users/')({
   server: {
@@ -46,10 +57,6 @@ export const Route = createFileRoute('/api/v1/users/')({
           const offset = decodeCursor(cursor)
           const page = Math.floor(offset / limit) + 1
 
-          // Import service functions
-          const { listPortalUsers } = await import('@/lib/server/domains/users/user.service')
-          const { parseUserAttributes } = await import('@/lib/server/domains/users/user.attributes')
-
           const result = await listPortalUsers({
             search,
             verified: verifiedBool,
@@ -87,6 +94,36 @@ export const Route = createFileRoute('/api/v1/users/')({
               },
             }
           )
+        } catch (error) {
+          return handleDomainError(error)
+        }
+      },
+
+      /**
+       * POST /api/v1/users
+       * Create a portal user with a display name and optional email.
+       */
+      POST: async ({ request }) => {
+        try {
+          await withApiKeyAuth(request, { role: 'admin' })
+
+          const body = await request.json().catch(() => null)
+          const parsed = createUserSchema.safeParse(body)
+          if (!parsed.success) {
+            return badRequestResponse('Invalid request body', {
+              errors: parsed.error.flatten().fieldErrors,
+            })
+          }
+
+          const result = await createPortalUser(parsed.data)
+
+          return createdResponse({
+            principalId: result.principalId,
+            userId: result.userId,
+            name: result.name,
+            email: result.email,
+            createdAt: result.createdAt.toISOString(),
+          })
         } catch (error) {
           return handleDomainError(error)
         }

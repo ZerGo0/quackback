@@ -196,6 +196,25 @@ export interface IdentifyPortalUserResult {
 }
 
 /**
+ * Input for creating a portal user without requiring an email address.
+ */
+export interface CreatePortalUserInput {
+  name: string
+  email?: string
+}
+
+/**
+ * Result of creating a portal user.
+ */
+export interface CreatePortalUserResult {
+  principalId: PrincipalId
+  userId: string
+  name: string
+  email: string | null
+  createdAt: Date
+}
+
+/**
  * Input for the PATCH update endpoint.
  */
 export interface UpdatePortalUserInput {
