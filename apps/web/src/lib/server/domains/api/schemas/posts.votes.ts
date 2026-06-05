@@ -50,6 +50,94 @@ registerPath('/posts/{postId}/vote', {
   },
 })
 
+const ProxyVoteBodySchema = z
+  .object({
+    voterPrincipalId: TypeIdSchema.meta({ description: 'Principal ID of the voter' }),
+    createdAt: z
+      .string()
+      .datetime()
+      .optional()
+      .meta({ description: 'Vote creation time. Only admin API keys can set this.' }),
+  })
+  .meta({ description: 'Proxy vote request body' })
+
+registerPath('/posts/{postId}/vote/proxy', {
+  post: {
+    tags: ['Votes'],
+    summary: 'Add a proxy vote',
+    description:
+      'Add a vote on behalf of another user (insert-only, never toggles). Requires team role. createdAt is accepted for admin API keys only.',
+    parameters: [
+      {
+        name: 'postId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+        description: 'Post ID',
+      },
+    ],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: asSchema(ProxyVoteBodySchema) } },
+    },
+    responses: {
+      200: {
+        description: 'Proxy vote added',
+        content: {
+          'application/json': {
+            schema: createItemResponseSchema(VoteResultSchema, 'Vote result'),
+          },
+        },
+      },
+      400: {
+        description: 'Validation error',
+        content: { 'application/json': { schema: ValidationErrorSchema } },
+      },
+      401: {
+        description: 'Unauthorized',
+        content: { 'application/json': { schema: UnauthorizedErrorSchema } },
+      },
+      404: {
+        description: 'Post not found',
+        content: { 'application/json': { schema: NotFoundErrorSchema } },
+      },
+    },
+  },
+  delete: {
+    tags: ['Votes'],
+    summary: 'Remove a proxy vote',
+    description: 'Remove any vote for a user. Requires team role.',
+    parameters: [
+      {
+        name: 'postId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string' },
+        description: 'Post ID',
+      },
+    ],
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: asSchema(ProxyVoteBodySchema) } },
+    },
+    responses: {
+      204: { description: 'Vote removed' },
+      400: {
+        description: 'Validation error',
+        content: { 'application/json': { schema: ValidationErrorSchema } },
+      },
+      401: {
+        description: 'Unauthorized',
+        content: { 'application/json': { schema: UnauthorizedErrorSchema } },
+      },
+      404: {
+        description: 'Post not found',
+        content: { 'application/json': { schema: NotFoundErrorSchema } },
+      },
+    },
+  },
+})
+
 const SubscriptionLevelSchema = z.enum(['all', 'status_only', 'none'])
 
 const VoterSchema = z

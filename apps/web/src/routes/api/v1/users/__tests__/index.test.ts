@@ -74,6 +74,17 @@ describe('POST /api/v1/users', () => {
     })
   })
 
+  it('passes optional email through to portal user creation', async () => {
+    await POST({
+      request: makeRequest({ name: 'Jane Doe', email: 'jane@example.com' }),
+    })
+
+    expect(mockCreatePortalUser).toHaveBeenCalledWith({
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+    })
+  })
+
   it('rejects invalid create-user bodies', async () => {
     const res = await POST({
       request: makeRequest({ email: 'not-an-email' }),

@@ -27,6 +27,7 @@ vi.mock('@/lib/server/domains/activity/activity.service', () => ({
 }))
 
 import { Route as VotersRoute } from '../$postId.voters'
+import { Route as ProxyVoteRoute } from '../$postId.vote.proxy'
 import { Route as VoterRoute } from '../$postId.voters.$principalId'
 
 type VotersRouteOpts = {
@@ -45,10 +46,20 @@ type VoterRouteOpts = {
     }
   }
 }
+type ProxyVoteRouteOpts = {
+  server: {
+    handlers: {
+      POST: (...args: unknown[]) => Promise<Response>
+      DELETE: (...args: unknown[]) => Promise<Response>
+    }
+  }
+}
 
 const votersHandlers = (VotersRoute as unknown as { options: VotersRouteOpts }).options.server
   .handlers
 const voterHandlers = (VoterRoute as unknown as { options: VoterRouteOpts }).options.server.handlers
+const proxyVoteHandlers = (ProxyVoteRoute as unknown as { options: ProxyVoteRouteOpts }).options
+  .server.handlers
 
 const POST_ID = 'post_01kqhxq697fvgat0h1abc12345' as unknown as PostId
 const VOTER_PRINCIPAL_ID = 'principal_01kqhxq697fvgat0fvps13rmy2' as unknown as PrincipalId
@@ -186,6 +197,43 @@ describe('/api/v1/posts/:postId/voters', () => {
     })
 
     expect(res.status).toBe(200)
+    expect(mockRemoveVote).toHaveBeenCalledWith(POST_ID, VOTER_PRINCIPAL_ID)
+    expect(mockCreateActivity).toHaveBeenCalledWith({
+      postId: POST_ID,
+      principalId: ACTOR_PRINCIPAL_ID,
+      type: 'vote.removed',
+      metadata: { voterPrincipalId: VOTER_PRINCIPAL_ID },
+    })
+  })
+
+  it('keeps the legacy proxy vote endpoint for existing clients', async () => {
+    const createdAt = '2026-02-03T04:05:06.000Z'
+
+    const res = await proxyVoteHandlers.POST({
+      request: makeRequest('POST', { voterPrincipalId: VOTER_PRINCIPAL_ID, createdAt }),
+      params: { postId: POST_ID },
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockAddVoteOnBehalf).toHaveBeenCalledWith(
+      POST_ID,
+      VOTER_PRINCIPAL_ID,
+      { type: 'proxy', externalUrl: '' },
+      null,
+      ACTOR_PRINCIPAL_ID,
+      new Date(createdAt)
+    )
+    const json = await res.json()
+    expect(json.data).toEqual({ voted: true, voteCount: 3 })
+  })
+
+  it('keeps the legacy proxy vote delete response shape', async () => {
+    const res = await proxyVoteHandlers.DELETE({
+      request: makeRequest('DELETE', { voterPrincipalId: VOTER_PRINCIPAL_ID }),
+      params: { postId: POST_ID },
+    })
+
+    expect(res.status).toBe(204)
     expect(mockRemoveVote).toHaveBeenCalledWith(POST_ID, VOTER_PRINCIPAL_ID)
     expect(mockCreateActivity).toHaveBeenCalledWith({
       postId: POST_ID,
