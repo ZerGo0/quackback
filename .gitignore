@@ -61,7 +61,6 @@ bun.lockb
 
 # Next.js generated
 apps/web/next-env.d.ts
-.serena/
 .worktrees/
 .superpowers/
 docs/superpowers/
