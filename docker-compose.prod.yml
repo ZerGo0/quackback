@@ -72,7 +72,7 @@ services:
       start_period: 40s
 
   postgres:
-    image: ghcr.io/quackbackio/quackback-postgres:${QUACKBACK_POSTGRES_TAG:-latest}
+    image: ${QUACKBACK_POSTGRES_IMAGE:-ghcr.io/quackbackio/quackback-postgres}:${QUACKBACK_POSTGRES_TAG:-latest}
     container_name: quackback-db
     restart: unless-stopped
     environment:
